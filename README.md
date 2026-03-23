@@ -29,9 +29,7 @@ cp -r agent-briefing ~/.claude/skills/
 
 None. Install and go.
 
-Transcripts and review data are served directly from notforhumans.tv. New episode detection uses TranscriptAPI's free channel-latest endpoint. No API keys required. No credits consumed. No signup needed.
-
-Optional: Set `TRANSCRIPT_API_KEY` for TranscriptAPI fallback if the website is temporarily unavailable.
+All data — transcripts, episode index, review data — is served from notforhumans.tv. No API keys. No credits. No signup. No third-party dependencies.
 
 ## Usage
 
@@ -63,13 +61,13 @@ node scripts/digest.js --json
 
 ```
 Agent installs skill
-  → latest.js     — TranscriptAPI channel-latest (free, no key)
+  → latest.js     — notforhumans.tv/episodes/index.json (free, no key)
   → transcript.js  — notforhumans.tv/episodes/XXX.md (free, no key)
   → reviews.js     — notforhumans.tv/episodes/index.json (free, no key)
   → digest.js      — combines all three (free, no key)
 ```
 
-TranscriptAPI is only used for one thing: detecting if new episodes exist. All actual content comes from the Not For Humans website.
+One data source. One website. No third-party APIs.
 
 ## Credit Usage
 

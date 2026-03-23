@@ -5,16 +5,13 @@
  * Verify connectivity. No API key required.
  *
  * Usage:
- *   node setup.js           # Check website + channel connectivity
- *   node setup.js --verify  # Also test transcript fetch (still free)
+ *   node setup.js           # Check website connectivity
+ *   node setup.js --verify  # Also test transcript fetch
  */
 
 const https = require("https");
 
-const CHANNEL = "@agentbriefing";
 const SITE_HOST = "notforhumans.tv";
-const API_HOST = "transcriptapi.com";
-const API_KEY = process.env.TRANSCRIPT_API_KEY;
 
 function httpGet(url, timeout = 10000) {
   return new Promise((resolve, reject) => {
@@ -44,33 +41,13 @@ function httpGet(url, timeout = 10000) {
   });
 }
 
-async function checkSite() {
+async function checkEpisodeIndex() {
   try {
     const result = await httpGet(`https://${SITE_HOST}/episodes/index.json`);
     if (result.status === 200) {
       const data = JSON.parse(result.data);
       const count = Array.isArray(data) ? data.length : (data.episodes || []).length;
       return { ok: true, message: `Episode index loaded — ${count} episode(s)` };
-    }
-    return { ok: false, message: `Returned ${result.status}` };
-  } catch (err) {
-    return { ok: false, message: err.message };
-  }
-}
-
-async function checkChannel() {
-  try {
-    const path = `/api/v2/youtube/channel/latest?channel=${encodeURIComponent(CHANNEL)}&limit=1`;
-    const url = `https://${API_HOST}${path}`;
-    const result = await httpGet(url);
-
-    if (result.status === 200) {
-      const data = JSON.parse(result.data);
-      const videos = Array.isArray(data) ? data : data.videos || data.items || data.data || [];
-      if (videos.length > 0) {
-        return { ok: true, message: `Latest: "${videos[0].title || "Untitled"}"` };
-      }
-      return { ok: true, message: "Connected — no episodes found yet" };
     }
     return { ok: false, message: `Returned ${result.status}` };
   } catch (err) {
@@ -95,41 +72,24 @@ async function main() {
 
   console.log(`\n📡 Agent Briefing — Setup Check\n`);
 
-  // Check website
-  console.log(`   Checking notforhumans.tv...`);
-  const siteResult = await checkSite();
-  console.log(`   ${siteResult.ok ? "✓" : "⚠"} Website: ${siteResult.message}`);
-
-  // Check channel-latest
-  console.log(`   Checking TranscriptAPI channel-latest...`);
-  const channelResult = await checkChannel();
-  console.log(`   ${channelResult.ok ? "✓" : "⚠"} Channel: ${channelResult.message}`);
-
-  // API key status (optional, not required)
-  if (API_KEY) {
-    console.log(`   ✓ TRANSCRIPT_API_KEY set (fallback available: ${API_KEY.slice(0, 6)}...)`);
-  } else {
-    console.log(`   ℹ TRANSCRIPT_API_KEY not set (optional — only needed as fallback)`);
-  }
+  // Check episode index
+  console.log(`   Checking notforhumans.tv/episodes/index.json...`);
+  const indexResult = await checkEpisodeIndex();
+  console.log(`   ${indexResult.ok ? "✓" : "⚠"} Episode Index: ${indexResult.message}`);
 
   // Verify transcript fetch
   if (verify) {
-    console.log(`   Checking transcript availability...`);
+    console.log(`   Checking notforhumans.tv/episodes/latest.md...`);
     const transcriptResult = await checkTranscriptFetch();
     console.log(`   ${transcriptResult.ok ? "✓" : "⚠"} Transcript: ${transcriptResult.message}`);
   }
 
   // Summary
-  const allGood = siteResult.ok && channelResult.ok;
-
   console.log();
-  if (allGood) {
+  if (indexResult.ok) {
     console.log(`   ✓ All systems operational. You're subscribed.\n`);
-  } else if (channelResult.ok) {
-    console.log(`   ⚠ Website not yet available — using TranscriptAPI fallback.`);
-    console.log(`     Transcripts and search will work once notforhumans.tv is live.\n`);
   } else {
-    console.log(`   ⚠ Some checks failed. The skill will retry on next use.\n`);
+    console.log(`   ⚠ Could not reach notforhumans.tv. The skill will retry on next use.\n`);
   }
 
   console.log(`   Quick start:`);

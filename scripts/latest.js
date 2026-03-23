@@ -3,7 +3,7 @@
 /**
  * agent-briefing: latest.js
  * Check @agentbriefing for new episodes.
- * Uses TranscriptAPI channel-latest endpoint (FREE — no credits consumed).
+ * Fetches from notforhumans.tv — no API key, no credits, no signup.
  *
  * Usage:
  *   node latest.js                  # Get latest uploads
@@ -13,9 +13,7 @@
 
 const https = require("https");
 
-const CHANNEL = "@agentbriefing";
-const BASE_URL = "transcriptapi.com";
-const API_KEY = process.env.TRANSCRIPT_API_KEY;
+const SITE_HOST = "notforhumans.tv";
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -27,55 +25,54 @@ function parseArgs() {
   return opts;
 }
 
-function fetchLatest(limit) {
+function httpGet(url) {
   return new Promise((resolve, reject) => {
-    const path = `/api/v2/youtube/channel/latest?channel=${encodeURIComponent(CHANNEL)}&limit=${limit}`;
-
-    const options = {
-      hostname: BASE_URL,
-      path,
-      method: "GET",
-      headers: {
-        "Accept": "application/json",
-        ...(API_KEY ? { "Authorization": `Bearer ${API_KEY}` } : {}),
-      },
-    };
-
-    const req = https.request(options, (res) => {
+    const handler = (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        httpGet(res.headers.location).then(resolve).catch(reject);
+        return;
+      }
       let data = "";
       res.on("data", (chunk) => (data += chunk));
-      res.on("end", () => {
-        if (res.statusCode >= 400) {
-          reject(new Error(`API returned ${res.statusCode}: ${data}`));
-          return;
-        }
-        try {
-          resolve(JSON.parse(data));
-        } catch (e) {
-          reject(new Error(`Failed to parse response: ${data.slice(0, 200)}`));
-        }
-      });
-    });
+      res.on("end", () => resolve({ status: res.statusCode, data }));
+    };
 
+    const parsed = new URL(url);
+    const options = {
+      hostname: parsed.hostname,
+      path: parsed.pathname + parsed.search,
+      method: "GET",
+      headers: { "Accept": "application/json" },
+    };
+
+    const req = https.request(options, handler);
     req.on("error", reject);
     req.end();
   });
 }
 
-function formatEpisode(video, index) {
-  const title = video.title || "Untitled";
-  const id = video.videoId || video.video_id || video.id || "unknown";
-  const published = video.publishedAt || video.published_at || video.date || "";
-  const url = `https://youtube.com/watch?v=${id}`;
+async function fetchEpisodeIndex() {
+  const result = await httpGet(`https://${SITE_HOST}/episodes/index.json`);
+  if (result.status !== 200) {
+    throw new Error(`Website returned ${result.status}`);
+  }
+  const data = JSON.parse(result.data);
+  return Array.isArray(data) ? data : data.episodes || data.items || [];
+}
 
-  // Try to extract episode number from title
-  const epMatch = title.match(/#(\d+)/);
-  const epNum = epMatch ? `#${epMatch[1]}` : `#${index + 1}`;
+function formatEpisode(ep, index) {
+  const title = ep.title || "Untitled";
+  const epNum = ep.episode || String(index + 1);
+  const videoId = ep.videoId || ep.video_id || ep.id || null;
+  const published = ep.publishedAt || ep.published_at || ep.date || "";
+  const url = videoId
+    ? `https://youtube.com/watch?v=${videoId}`
+    : `https://youtube.com/@agentbriefing`;
 
   return {
-    episode: epNum,
+    episode: `#${epNum.replace(/^0+/, "") || index + 1}`,
     title,
-    videoId: id,
+    videoId,
     url,
     published,
   };
@@ -85,37 +82,40 @@ async function main() {
   const opts = parseArgs();
 
   try {
-    const response = await fetchLatest(opts.limit);
+    const episodes = await fetchEpisodeIndex();
 
-    // Handle different response shapes
-    const videos = Array.isArray(response)
-      ? response
-      : response.videos || response.items || response.data || [];
+    // Sort by episode number descending (most recent first)
+    episodes.sort((a, b) => {
+      const numA = parseInt(String(a.episode).replace(/\D/g, ""), 10) || 0;
+      const numB = parseInt(String(b.episode).replace(/\D/g, ""), 10) || 0;
+      return numB - numA;
+    });
 
-    if (videos.length === 0) {
-      console.log("No episodes found. The channel may be new or the API shape may have changed.");
-      console.log("Raw response:", JSON.stringify(response, null, 2));
+    const limited = episodes.slice(0, opts.limit);
+
+    if (limited.length === 0) {
+      console.log("No episodes found on notforhumans.tv.");
       return;
     }
 
-    const episodes = videos.map((v, i) => formatEpisode(v, i));
+    const formatted = limited.map((ep, i) => formatEpisode(ep, i));
 
     if (opts.json) {
-      console.log(JSON.stringify(episodes, null, 2));
+      console.log(JSON.stringify(formatted, null, 2));
       return;
     }
 
     console.log(`\n📡 Not For Humans — @agentbriefing`);
-    console.log(`   ${episodes.length} recent episode(s)\n`);
+    console.log(`   ${formatted.length} recent episode(s)\n`);
 
-    for (const ep of episodes) {
+    for (const ep of formatted) {
       console.log(`   ${ep.episode}: ${ep.title}`);
       console.log(`   ${ep.url}`);
       if (ep.published) console.log(`   Published: ${ep.published}`);
       console.log();
     }
 
-    console.log(`Credits used: 0 (channel-latest is free)`);
+    console.log(`   Credits used: 0`);
   } catch (err) {
     console.error(`Error fetching latest episodes: ${err.message}`);
     process.exit(1);
